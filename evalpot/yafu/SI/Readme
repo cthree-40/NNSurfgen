@@ -1,0 +1,11 @@
+This NN PES has been tested on 64bit Linux platform with intel compiler and
+MKL library (Makefile.intel). The user could also use gfortran, blas and
+lapack library (Makefile.gnu) if the intel counterparts are not available.
+
+nn.f90 pes.f90 are the source codes for NN PES.
+main.f90 provides a sample calling: first call pesinit to initialize the PES,
+then call the main evaluation subroutine: NNEvaluate.
+In the test directory, the user can simply enter ../test.x in command line
+to run the testing program, which would generate the data for plotting the
+dissociative path in Fig. 3. The test directory contains all the definition
+files needed to use this PES.

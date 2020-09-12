@@ -1,0 +1,199 @@
+!===============================================================================
+subroutine calc_perf(P)
+  use hddata, only: nstates,EvaluateHd
+  use makesurfdata
+  implicit none
+  real*8, intent(out) :: P
+  real*8, allocatable :: hmat(:,:)
+  real*8, allocatable :: work(:),vtmp(:)
+  integer :: lwork,info
+  integer :: i,j,k,l,idx
+
+  lwork=999
+  allocate(hmat(nstates,nstates),vtmp(nstates),work(lwork))
+
+  rmse=0.d0
+  rmsh=0.d0
+  idx=0
+  do i=1,npoints
+
+    call EvaluateHd(dispgeoms(i),hmat)
+    write(*,"('Point ',i2,'Hd = ')") i
+    write(*,"(10x,3f10.6)") hmat
+    write(*,"('')")
+    !eigenvector
+    ckl(i,:,:)=hmat
+    call dsyev('V','U',nstates,ckl(i,:,:),nstates,vtmp,work,lwork,info)
+    if(info .ne. 0) stop 'dsyev failed in calc_perf!'
+    !fitE
+    fitE(i,:,:)=matmul(transpose(ckl(i,:,:)),matmul(hmat,ckl(i,:,:)))
+
+    !Ene Err
+    do k=1,nstates
+      err(idx+1)=fitE(i,k,k)-dispgeoms(i)%energy(k,k)
+      rmse(k)=rmse(k)+(err(idx+1)**2)*eWeight(i,k)
+      err(idx+1)=err(idx+1)*sqrt(rhog)
+      idx=idx+1
+    end do
+    ! CLM: Debugging
+    write(*,"(A,i10)") "DEBUG: Pt ", i
+    do k = 1, nstates
+       write(*,"(2F15.8)",advance="no") dispgeoms(i)%energy(k,k), &
+            (dispgeoms(i)%energy(k,k) - fitE(i,k,k))
+    end do
+    write(*,"('')")
+    do k = 1, nstates
+       do j = k, nstates
+          write(*,"(2F15.8)",advance="no") hmat(k,j), dispgeoms(i)%hd(k,j)
+       end do
+    end do
+    write(*,"('')")
+    !Hd Err
+    l=0
+    do j=1,nstates
+      do k=j,nstates
+      l=l+1
+      err(idx+1)=hmat(j,k)-dispgeoms(i)%hd(j,k)
+      rmsh(l)=rmsh(l)+err(idx+1)**2
+      idx=idx+1
+      end do
+    end do
+
+  end do
+  if(idx.ne.nse) stop 'idx.ne.nse in calc_perf!'
+
+  rmse=dsqrt(rmse/dble(npoints))
+  rmsh=dsqrt(rmsh/dble(npoints))
+  P=dot_product(err,err)
+
+  deallocate(hmat,work)
+  return
+end
+!===============================================================================
+subroutine calc_jac
+  use progdata, only:natoms
+  use hddata
+  use makesurfdata
+  implicit none
+  real*8, allocatable :: dpdh(:,:,:,:)
+  !W^IJ_i =<f^I|W_i|f^J>
+  !D^IJ_i = W^IJ_i / (E^J-E^I)
+  real*8, allocatable :: WIJ(:,:,:), DIJ(:,:,:)
+  real*8, allocatable :: cc(:)
+  real*8, allocatable :: xin(:)
+  real*8 :: oop(noopc)
+  integer :: i,j,k,l,R,idx,ico
+  integer :: nrn
+  integer :: ii, o
+
+  allocate(dpdh(npoints,npara,nstates,nstates))
+  allocate(WIJ(npoints,nstates,nstates))
+  allocate(DIJ(npoints,nstates,nstates))
+  allocate(cc(npoints))
+  R=ANN%RX
+  allocate(xin(R))
+
+  do i=1,npoints
+     xin=dispgeoms(i)%igeom(1:R)
+     do j = 1, noopc
+        oop(j)=dispgeoms(i)%igeom((ncoord-noopc)+j)
+     end do
+     call ANN%output(xin)
+     call ANN%cal_dydn
+     call ANN%cal_dydp
+
+     ! Loop over blocks
+     dpdh(i,:,:,:) = 0.0
+     nrn = 1
+     do ii = 1, nstates
+        ! PIP on diagonal
+        do j = 1, abs(hddef(ii,ii)%nc)
+           dpdh(i,:,ii,ii) = dpdh(i,:,ii,ii) + ANN%dydp(:,nrn)
+           nrn = nrn + 1
+        end do
+        do j = ii+1, nstates
+           ! PIP * OOP off diagonal
+           do k = 1, hddef(ii,j)%nc
+              do o = 1, 4 ! order
+                 if (hddef(ii,j)%terms(o,k) .eq. 0) cycle
+                 dpdh(i,:,ii,j) = dpdh(i,:,ii,j) + &
+                      ANN%dydp(:,nrn)*oop(hddef(ii,j)%terms(o,k))**o
+                 nrn = nrn + 1
+              end do
+           end do
+           dpdh(i,:,j,ii) = dpdh(i,:,ii,j)
+        end do
+     end do
+     
+    !dpdh(i,:,1,1) = ANN%dydp(:,1)  !(1,1)
+    !dpdh(i,:,1,2) = ANN%dydp(:,2)*oop(1) + ANN%dydp(:,3)*oop(1)**3    !(1,2)
+    !dpdh(i,:,2,1) = dpdh(i,:,1,2)
+    !dpdh(i,:,1,3) = ANN%dydp(:,4)*oop(2)**2 + ANN%dydp(:,5)*oop(2)**4
+    !dpdh(i,:,3,1) = dpdh(i,:,1,3)
+    !dpdh(i,:,2,2) = ANN%dydp(:,6)  !(2,2)
+    !dpdh(i,:,2,3) = ANN%dydp(:,7)*oop(3) + ANN%dydp(:,8)*oop(3)**3
+    !dpdh(i,:,3,2) = dpdh(i,:,2,3)
+    !dpdh(i,:,3,3) = ANN%dydp(:,9)  !(3,3)
+
+  end do !i
+
+  !WIJ,VIJ,DIJ
+  do ico=1,npara
+    WIJ=0.d0
+    DIJ=0.d0
+    !construct vectors W,V and D for the current coefficient
+    do i=1,nstates
+      do j=i,nstates
+
+        do l=1,nstates
+          do k=1,nstates
+            !calculate the multiplication of ckl
+            cc=ckl(:,k,i)*ckl(:,l,j)
+            WIJ(:,i,j)=WIJ(:,i,j)+cc*dpdh(:,ico,k,l)
+          end do!K
+        end do!L
+
+        !construct DIJ from WIJ. non zero only on the off diagonal
+        if(j.ne.i) then
+          DIJ(:,i,j)=WIJ(:,i,j)/(fitE(:,j,j)-fitE(:,i,i))
+          !fill the lower triangle of D and W
+          WIJ(:,j,i)   = WIJ(:,i,j)
+          DIJ(:,j,i)   = -DIJ(:,i,j)
+        end if !(J.ne.I)
+
+      end do!J
+    end do!I
+
+    !update the wave function dependent part of Wij
+    do i=1,nstates
+      do j=i,nstates
+        do k=1,nstates
+          if(k.ne.i) WIJ(:,i,j)=WIJ(:,i,j)+DIJ(:,k,i)*fitE(:,k,j)
+          if(k.ne.j) WIJ(:,i,j)=WIJ(:,i,j)+DIJ(:,k,j)*fitE(:,k,i)
+        end do
+        if(i.ne.j) WIJ(:,j,i)=WIJ(:,i,j)
+      end do !J=I,nstates
+    end do !I=1,nstates
+
+    idx=0
+    do i=1,npoints
+      !Jac Ene
+      do k=1,nstates
+        Jac(ico,idx+1)=WIJ(i,k,k)*sqrt(rhog)
+        idx=idx+1
+      end do
+      !Jac Hd
+      do j=1,nstates
+        do k=j,nstates
+          Jac(ico,idx+1)=dpdh(i,ico,j,k)
+          idx=idx+1
+        end do
+      end do
+    end do
+    if(idx.ne.nse) stop 'idx.ne.nse in calc_jac!'
+
+  end do!ico
+
+  return
+end subroutine calc_jac
+!===============================================================================

@@ -1,0 +1,35 @@
+#Macro definition
+CC = gcc
+FC = ifort -traceback
+MKLROOT = /software/apps/compilers/intel/compilers_and_libraries_2018.3.222/linux/mkl
+CUDAROOT= /software/apps/cuda/9.2
+CFLAGS =  -gencode=arch=compute_35,code=sm_35 -I$(CUDAROOT)/include
+FFLAGS =  -O3 -qopenmp -I$(MKLROOT)/include/intel64/lp64 -I$(MKLROOT)/include
+LDFLAGS =  $(MKLROOT)/lib/intel64/libmkl_blas95_lp64.a \
+           $(MKLROOT)/lib/intel64/libmkl_lapack95_lp64.a \
+           -Wl,--start-group \
+           $(MKLROOT)/lib/intel64/libmkl_intel_lp64.a \
+           $(MKLROOT)/lib/intel64/libmkl_core.a \
+           $(MKLROOT)/lib/intel64/libmkl_intel_thread.a \
+           -Wl,--end-group -lpthread -lm
+CUDAFLAGS = -L$(CUDAROOT)/lib64 -lcudart -lcublas -lcusolver
+OBJ = nn.o gpu_dsyrk.o gpu_cholesky.o progdata.o hddata.o combinatorial.o \
+			libutil.o pip.o libinternal.o localcoord.o io.o makesurf.o lm0.o lm.o
+#end of Macro definition
+
+surfgen-nn0.x: $(OBJ) surfgen0.o main.o
+	$(FC) $(FFLAGS) $(OBJ) surfgen0.o main.o -o surfgen-nn0.x $(LDFLAGS) $(CUDAFLAGS)
+surfgen-nn.x: $(OBJ) surfgen.o main.o
+	$(FC) $(FFLAGS) $(OBJ) surfgen.o main.o -o surfgen-nn.x $(LDFLAGS) $(CUDAFLAGS)
+	cp surfgen-nn.x ../../bin/oh3_surfgen-nn.e1.x
+clean:
+	rm -f *.o *.mod a.out *.x *.a *.exe
+
+gpu_dsyrk.o: gpu_dsyrk.cu
+	nvcc -ccbin $(CC) $(CFLAGS) -c gpu_dsyrk.cu -o gpu_dsyrk.o
+
+gpu_cholesky.o: gpu_cholesky.cu
+	nvcc -ccbin $(CC) $(CFLAGS) -c gpu_cholesky.cu -o gpu_cholesky.o
+
+%.o: %.f90
+	$(FC) $(FFLAGS) -c $< -o $@

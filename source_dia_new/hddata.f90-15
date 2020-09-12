@@ -1,0 +1,74 @@
+!------------------------------------------------------------------------
+MODULE HdDATA
+  use nn_class
+  IMPLICIT NONE
+  type(nn) :: ANN !Feed-Forward Neural Network
+  INTEGER :: ncoord   !total number of internal coords
+  INTEGER :: nstates  !number of electronic states
+CONTAINS
+!------------------------------------------------------------------------
+SUBROUTINE EvaluateHd(dispgeom,hmat)
+      use progdata, only: abpoint, natoms
+      IMPLICIT NONE
+      TYPE(abpoint),INTENT(IN) :: dispgeom
+      DOUBLE PRECISION,DIMENSION(nstates,nstates),INTENT(OUT) :: hmat
+      double precision, allocatable :: xin(:)
+      real*8 :: oop
+      real*8 :: fcdp ! four-center dot product
+      integer :: R
+
+      R=ANN%RX
+      allocate(xin(R))
+
+      !hmat
+      xin=dispgeom%igeom(1:R)
+      oop=dispgeom%igeom(ncoord-1)
+      fcdp=dispgeom%igeom(ncoord)
+      call ANN%output(xin)
+      hmat(1,1) = ANN%y(1)
+      hmat(1,2) = ANN%y(2)*oop + ANN%y(3)*oop**3 &
+              + ANN%y(4)*fcdp + ANN%y(5)*fcdp**3
+      hmat(2,1) = hmat(1,2)
+      hmat(1,3) = ANN%y(6)*oop**2 + ANN%y(7)*oop**4 &
+              + ANN%y(8)*fcdp**2 + ANN%y(9)*fcdp**4
+      hmat(3,1) = hmat(1,3)
+      hmat(2,2) = ANN%y(10)
+      hmat(2,3) = ANN%y(11)*oop + ANN%y(12)*oop**3 &
+              + ANN%y(13)*fcdp**2 + ANN%y(14)*fcdp**3
+      hmat(3,2) = hmat(2,3)
+      hmat(3,3) = ANN%y(15)
+
+      return
+END SUBROUTINE EvaluateHd
+!------------------------------------------------------------------------
+subroutine copy_wb
+      call ANN%wb_copy()
+      return
+end subroutine copy_wb
+!------------------------------------------------------------------------
+subroutine rec_wb
+      call ANN%wb_rec()
+      return
+end subroutine rec_wb
+!------------------------------------------------------------------------
+subroutine init_wb
+      call ANN%wb_init(-1.d0,1.d0)
+      return
+end subroutine init_wb
+!------------------------------------------------------------------------
+subroutine savenet(outfl)
+  implicit none
+  character(len=*) :: outfl
+  call ANN%savenn(outfl,1)
+  return
+end subroutine savenet
+!------------------------------------------------------------------------
+subroutine readnet(wfile)
+  implicit none
+  character(len=*) :: wfile
+  call ANN%savenn(wfile,0)
+  return
+end subroutine readnet
+!-----------------------------------------------------------------------
+END MODULE HdDATA
+!=======================================================================
