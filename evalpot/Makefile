@@ -1,13 +1,18 @@
 #Macro definition
-FC = ftn -traceback -i8
+FC = ifort -traceback -i8 -g
 FFLAGS = -O3 -qopenmp -I$(MKLROOT)/include/intel64/lp64 -I$(MKLROOT)/include
 LDFLAGS = $(BLAS_LIB)
+AR = ar
 EVALPOTOBJ = nn.o pes.o evalpot.o
 TESTGRADOBJ = nn.o pes.o testgrads.o
 TESTPTSOBJ = nn.o pes.o testpoints.o
 FINDCPOBJ  = nn.o pes.o opttools.o findcp.o
 FINDMXOBJ  = nn.o pes.o opttools.o findmex.o
+EVALLIBOBJ = nn.o pes.o
 #end of Macro definition
+
+evallibs: $(EVALLIBOBJ)
+	$(AR) -r -v ../lib/lib-nnsurfgen.a $(EVALLIBOBJ)
 
 evalpot.x: $(EVALPOTOBJ)
 	$(FC) $(FFLAGS) $(EVALPOTOBJ) -o evalpot.x $(LDFLAGS)

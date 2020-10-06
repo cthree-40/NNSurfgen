@@ -29,6 +29,30 @@ module nnpes
   integer :: lastlayer   ! Neurons in last layer
   integer :: noopc       ! Number of OOP coordinates defined in file  
 
+  double precision, dimension(:,:), allocatable :: evecstore
+
+  character(3), dimension(:), allocatable :: atomlabels
+  
+  integer :: EvalCount
+  integer :: NEval
+  
+  ! parsing of trajectory variables
+  logical :: parsing
+  logical :: calcmind
+  logical :: paused
+  integer :: GUNIT
+  double precision :: timetraj
+  integer          :: isurftraj
+  ! number of reference points
+  integer          :: num_rpts
+  double precision, dimension(:,:), allocatable :: refpoints
+  ! distance coordinates
+  integer                :: ndcoord
+  integer, dimension(20) :: dcoordls
+  integer                :: NeighborID
+  double precision, dimension(:), allocatable :: lastrgeom
+  double precision, dimension(:), allocatable :: ldbounds, udbounds
+  logical :: firstpt
 contains
   !----------------------------------------------------------------------
   subroutine readcoordinput ()
@@ -861,7 +885,199 @@ subroutine pesinit
 
   return
 end subroutine pesinit
+!==================================================================================
+!initialize NN PES (same as pesinit)
+subroutine prepot
+  !struct: NN structure definition file
+  !WB.txt: Weights and Biases
+  !MOL_1_3_4.BAS: PIP definition file
+  use nnpes
+  use pip
+  implicit none
+  integer :: ios
 
+  natoms=4
+  nstates=3
+  if (allocated(atomlabels)) deallocate(atomlabels)
+  allocate(atomlabels(natoms))
+  atomlabels(1) = "O"
+  atomlabels(2) = "H"
+  atomlabels(3) = "H"
+  atomlabels(4) = "H"
+
+  call readcoordinput()
+  ncoord = 30 + noopc
+  print *, "Total number of coordinates: ", ncoord
+  print *, "Number of user defined OOP coordinates: ", noopc
+
+  !pip
+  npip=ncoord-noopc
+  pipbasfl='MOL_1_3_4.BAS'
+  scalemod=-1
+  call initpip
+
+  !ANN
+  ANN%structfl='struct'
+  call ANN%init()
+  if(ANN%RX .ne. npip) stop 'ANN%RX .ne. npip'
+  if(ANN%RY .ne. lastlayer) stop 'ANN%RY .ne. lastlayer'
+  inquire(file='NN.txt',exist=ios)
+  if (.not. ios) stop "No NN.txt file found."
+  print *, "Reading NN.txt..."
+  call ANN%savenn('NN.txt',0)
+
+  ! Set variables for trajectory evaluations
+  if (allocated(evecstore)) deallocate(evecstore)
+  allocate(evecstore(nstates,nstates))
+  paused = .false.
+  parsing = .true.
+  GUNIT = -1
+  if (parsing) call openTrajFile(0)
+  call ResetEvalCount()
+  call inittraj()
+
+  
+  calcmind = .true.
+  if (calcmind) then
+     ndcoord = 6
+     dcoordls(1) = 1
+     dcoordls(2) = 2
+     dcoordls(3) = 3
+     dcoordls(4) = 4
+     dcoordls(5) = 5
+     dcoordls(6) = 6
+     call loadrefgeoms()
+     call initmindist()
+  end if
+  return
+end subroutine prepot
+!==========================================================================
+subroutine initmindist
+  use nnpes
+  implicit none
+  integer :: i
+  if (allocated(lastrgeom)) deallocate(lastrgeom)
+  if (allocated(ldbounds))  deallocate(ldbounds)
+  if (allocated(udbounds))  deallocate(udbounds)
+  allocate(lastrgeom(ncoord))
+  allocate(ldbounds(num_rpts))
+  allocate(udbounds(num_rpts))
+  lastrgeom = dble(0)
+  do i = 1, num_rpts
+     ldbounds(i) = dble(0)
+     udbounds(i) = dble(0)
+  end do
+  firstpt = .true.
+  NeighborID = 0
+end subroutine initmindist
+!==========================================================================
+! initialze the traj calcs                                                        
+SUBROUTINE inittraj()
+  use nnpes
+  IMPLICIT NONE                                                          
+  timetraj  = -1D0                                                       
+  isurftraj = 0
+END SUBROUTINE inittraj
+!=====================================================================
+! Reset the evaluation counter                                       
+SUBROUTINE ResetEvalCount()                                        
+  EvalCount = 0                                                   
+END SUBROUTINE ResetEvalCount
+!=====================================================================
+! Parsing subroutines
+SUBROUTINE pauseParsing()                                         
+  use nnpes
+  paused = parsing .or. paused                                    
+  parsing = .false.                                               
+END SUBROUTINE                                                    
+SUBROUTINE resumeParsing()                                        
+  use nnpes
+  parsing = parsing .or. paused                                   
+  paused = .false.                                                
+END SUBROUTINE                                                    
+SUBROUTINE enableParsing()                                        
+  use nnpes
+  parsing = .true.                                                
+END SUBROUTINE                                                    
+SUBROUTINE disableParsing()                                       
+  use nnpes
+  parsing = .false.                                               
+END SUBROUTINE                                                    
+!======================================================================
+! Retrieve the evaluation counter                                    
+SUBROUTINE GetEvalCount(count)                                     
+  INTEGER,INTENT(OUT)  :: count                                   
+  count= EvalCount                                                
+END SUBROUTINE GetEvalCount
+!========================================================================
+! loadrefgeoms: load refgeom file
+subroutine loadrefgeoms()
+  use nnpes
+  use pip
+  implicit none
+  integer, parameter :: maxpts = 15000
+  double precision, dimension(3*natoms, maxpts) :: cgeom
+  double precision, dimension(ncoord) :: igeom
+  double precision, dimension(ncoord, 3*natoms) :: bmat
+  integer :: fid, ios
+  integer :: i, j
+  
+  call FLUnit(fid)
+  open(unit=fid,file="refgeom",status="old",action="read",access="sequential",&
+       form="formatted",iostat=ios)
+  if (ios .ne. 0) stop "Could not open refgeom."
+  ! Get number of points
+  do
+     read(unit=fid,fmt=*,iostat=ios)
+     if (ios .ne. 0) exit
+     num_rpts = num_rpts + 1
+  end do
+  num_rpts = num_rpts / (natoms + 1)
+  if (num_rpts .gt. maxpts) stop "Points in refgeom > 15000!"
+  print "(A,i7,A)", "Reading ", num_rpts, " points"
+  ! Read reference points
+  rewind(unit=fid,iostat=ios)
+  if (ios .ne. 0) stop "Rewind failed."
+  read(unit=fid,fmt=*,iostat=ios) cgeom
+  if (ios .gt. 0) then
+     print *, "ios = ", ios
+     stop "Failed to read refgeom."
+  end if
+  close(unit=fid)
+  
+  ! Allocate refpoints and process internal coordinates
+  if (allocated(refpoints)) deallocate(refpoints)
+  allocate(refpoints(ncoord, num_rpts))
+  do i = 1, num_rpts
+     call buildWBMat(natoms, ncoord, cgeom(:,i), igeom, bmat)
+     refpoints(:,i) = igeom
+  end do
+  
+  return
+end subroutine loadrefgeoms
+
+!========================================================================
+! create the files corresponding to a new trajectory
+SUBROUTINE openTrajFile(itraj)
+  use nnpes
+  use pip
+  IMPLICIT NONE            
+  INTEGER,intent(IN)     ::  itraj                                                      
+  integer cnt                                                                    
+  character(4)   ::  str                                                               
+  
+  write(str,"(I4)")itraj                                               
+  ! prepare output for geometry, energy and distance print out
+  if(GUNIT<0)then
+     GUNIT = 427
+     close(GUNIT)
+  end if
+  open(GUNIT,file='trajdata'//trim(adjustl(str))//'.csv',status='REPLACE',action='write')           
+  write(str,"(I4)")natoms
+  write(GUNIT,&
+       "(I5,',',I5,"//trim(adjustl(str))//"(',',A3))")natoms,nstates,atomlabels(1:natoms)
+  
+END SUBROUTINE openTrajFile
 !==================================================================================
 !Evaluate diabatic Hamiltonian and its gradients w.r.t. internal coordinates
 SUBROUTINE EvaluateHd0(igeom,hmat,dhmat)
@@ -963,9 +1179,13 @@ subroutine NNEvaluate(geom,e,cg,h,dcg)
   real*8, intent(out) :: cg(3*natoms,nstates,nstates)
   real*8, intent(out) :: dcg(3*natoms,nstates,nstates)
   real*8, allocatable :: igeom(:),dh(:,:,:),Bmat(:,:),ckl(:,:),work(:)
-  real*8 :: oop,de
+  real*8 :: oop,de,fnorm(nstates)
   integer :: i,j,info,lwork
-
+  character(4) :: str, str2
+  integer :: ptid, nc
+  double precision :: mind
+  double precision, external :: dnrm2
+  
   lwork=999
   allocate(igeom(ncoord),dh(ncoord,nstates,nstates),Bmat(ncoord,3*natoms))
   allocate(ckl(nstates,nstates),work(lwork))
@@ -1005,6 +1225,31 @@ subroutine NNEvaluate(geom,e,cg,h,dcg)
     end do
   end do
 
+  ! trajectory parsing
+  if (parsing) then
+     NEval = NEval + 1
+     write(str, "(I4)") natoms*3
+     write(str2,"(I4)") nstates
+     if (GUNIT<0) call openTrajFile(0)
+     if (calcmind) then
+        call getmind(igeom,mind,ptid)
+        NeighborID = ptid
+        print *, "mindNN = ", mind
+        mind = mind/sqrt(dble(ndcoord))
+        print *, "mindNN'= ", mind
+     endif
+     fnorm = 0d0
+     if (isurftraj <= nstates .and. isurftraj > 0) then
+        do j = 1, nstates
+           if (j == isurftraj) cycle
+           fnorm(j) = dnrm2(3*natoms, cg(1,j,isurftraj),1)
+        end do
+     end if
+     write(GUNIT,&
+          "(F16.3,',',I9,',',"//trim(str)//"(F12.7,','),"//trim(str2)//"(E16.8,','),F14.8,',',I6,"//&
+          trim(str2)//"(',',F16.4),',',I3,"//trim(str2)//"(',',E16.8),',',I4)")&
+          timetraj,NEval,geom, e,mind, ptid, e, isurftraj, fnorm, nc
+  endif
   return
 end subroutine NNEvaluate
 !==================================================================================
@@ -1033,3 +1278,96 @@ subroutine NNEvaluate77(mnatm, mnst, gm, e, cg, h, dcg)
   return
 end subroutine NNEvaluate77
 !==================================================================================
+! This subroutine is used to set time and surface index data for output 
+SUBROUTINE setTrajData(ttime, tisurf)                                   
+  use nnpes
+  IMPLICIT NONE                                                         
+  DOUBLE PRECISION,intent(IN)  :: ttime                                 
+  INTEGER, intent(IN)          :: tisurf                                
+                                                                        
+  timetraj  = ttime                                                     
+  isurftraj = tisurf                                                    
+END SUBROUTINE setTrajData                                              
+!===============================================================================
+subroutine getmind(currgeom,mind,ptid)
+  use nnpes
+  implicit none
+  double precision, dimension(ncoord), intent(in) :: currgeom
+  double precision, intent(out) :: mind
+  integer, intent(out)          :: ptid
+
+  double precision :: dlpt           ! distance to last point
+  double precision :: max_mind       ! max(mind)
+  integer, dimension(num_rpts) :: wl ! waiting list of candidate points
+  integer :: nwl                     ! number of candidates
+  double precision :: d ! distance to point with least lower bound
+  double precision, parameter :: vsmall = 1d-8 ! resolution of distances
+  integer :: i, j
+
+  ! If first point
+  if (firstpt) then
+     do i = 1, num_rpts
+        call getdist(currgeom, refpoints(:,i), d)
+        ldbounds(i) = d
+        udbounds(i) = d
+        if (i .eq. 1 .or. d < mind) then
+           mind = d
+           ptid = i
+        end if
+     end do
+     lastrgeom = currgeom
+     firstpt = .false.
+     return
+  end if
+  
+  ! Get distance to last point
+  call getdist(currgeom, lastrgeom, dlpt)
+  lastrgeom = currgeom
+  do i = 1, num_rpts
+     if (dlpt > udbounds(i)) then
+        ldbounds(i) = dlpt - udbounds(i)
+     else if (dlpt < ldbounds(i)) then
+        ldbounds(i) = ldbounds(i) - dlpt
+     else
+        ldbounds(i) = dble(0)
+     end if
+  end do
+  udbounds = udbounds + dlpt
+
+  ! prepare candidate list
+  max_mind = minval(udbounds)
+  nwl = 0
+  do i = 1, num_rpts
+     if (ldbounds(i) < max_mind + vsmall) then
+        nwl = nwl + 1
+        wl(nwl) = i
+     end if
+  end do
+
+  ! Evaluate these points to find lowest
+  mind = max_mind
+  ptid = 0
+  do i = 1, nwl
+     if (ldbounds(wl(i)) > mind) cycle
+     call getdist(currgeom, refpoints(:,wl(i)), d)
+     ldbounds(wl(i)) = d
+     udbounds(wl(i)) = d
+     if (d < mind .or. ptid .eq. 0) then
+        mind = d
+        ptid = wl(i)
+     end if
+  end do
+  return
+end subroutine getmind
+!============================================================================
+subroutine getdist(geom1, geom2, mind)
+  use nnpes
+  implicit none
+  double precision, dimension(ncoord), intent(in) :: geom1, geom2
+  double precision,                    intent(out):: mind
+  double precision, dimension(ndcoord) :: geomd
+  double precision, external :: dnrm2
+  geomd = geom1(dcoordls(1:ndcoord)) - geom2(dcoordls(1:ndcoord))
+  mind  = dnrm2(ndcoord, geomd, 1)
+  return
+end subroutine getdist

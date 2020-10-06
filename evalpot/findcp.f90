@@ -66,7 +66,7 @@ program main
   printlvl   = 0           
   molden     = .false.       
   geomprint  = .false.    
-  ant_output = .false.   
+  ant_output = .true.   
   bndcutoff  = 4d0        
 
   
