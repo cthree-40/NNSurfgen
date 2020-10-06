@@ -24,7 +24,7 @@ SUBROUTINE readinput
   namelist /fitting/ npoints, epmax, useGPU, w_energy, w_grad, w_fij,   &
     lambda, ptwthreshold, energyT, highEScale, deg_cap,&
     gradcutoff, cpcutoff, intGradT, intGradS, nrmediff, ediffcutoff,    &
-    scalemod, morse
+    scalemod, morse, gradrmstol
 
   !readEner: uniform shift on ab initio energies
   eshift = 76.6476575743 !Hartree
@@ -34,6 +34,7 @@ SUBROUTINE readinput
   cpcutoff = -1.
   nrmediff = 2000 / EV2CM
   ediffcutoff = 2000 / EV2CM
+  gradrmstol = 1.d0
   
   !progdata
   natoms=4

@@ -73,6 +73,7 @@ subroutine makesurf
   end do
 
   call printerrorE()
+  call printrefgeom()
   
   write(outfl,"('WB.txt')")
   call savecoef(outfl)

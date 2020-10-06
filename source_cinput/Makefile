@@ -1,5 +1,5 @@
 #Macro definition
-FC = ftn -traceback -i8
+FC = ifort -traceback -i8
 AR = ar
 FFLAGS =  -O3 -qopenmp -I$(MKLROOT)/include/intel64/lp64 -I$(MKLROOT)/include
 LDFLAGS = $(BLAS_LIB)

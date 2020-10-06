@@ -118,6 +118,9 @@ real*8 :: rmsee,mue,rmsec,rmseg
 !Use GPU to compute dsyrk & cholesky decomposition
 logical :: useGPU
 
+! Include gradients in RMS calculation threshold
+real*8 :: gradrmstol
+
 CONTAINS
 !----------------------------------------------------------------------------------
 !determine if each equation will be include / excluded / fitted exactly
@@ -564,7 +567,7 @@ subroutine getError
             gnrm = dot_product(dispgeoms(j)%grads(:nvpt,k,k),&
                                dispgeoms(j)%grads(:nvpt,k,k))
             dgrd = dgrd/gnrm
-            if(gnrm.gt.1.d0) then
+            if(gnrm.gt.gradrmstol) then
               nrmgrad = nrmgrad + dgrd
               avggrad = avggrad + sqrt(dgrd)
               inc_grad = inc_grad + 1
@@ -624,6 +627,26 @@ subroutine printerrorE
   print *, ""
   return
 end subroutine printerrorE
+
+!----------------------------------------------------------------------------------
+subroutine printrefgeom()
+  implicit none
+  integer :: fid, i, ios
+
+  call FLUnit(fid)
+  open(unit=fid,file='refgeom',access='sequential',form='formatted',&
+       status='replace',action='write',position='rewind',iostat=ios)
+  if (ios.ne.0) then
+     print *, "Could not open refgeom file."
+     return
+  end if
+  do i = 1, npoints
+     write(fid,*) ""
+     write(fid,"(3f20.15)") dispgeoms(i)%cgeom
+  end do
+  close(fid)
+  return
+end subroutine printrefgeom
 
 end module makesurfdata
 !----------------------------------------------------------------------------------
@@ -891,7 +914,7 @@ SUBROUTINE readdisps()
   do i=1,npoints
     do j=1,nstates
       l=dispgeoms(i)%nvibs
-      write(fid,"(2i4,e15.6)") i,j,&
+      write(fid,"(2i6,e15.6)") i,j,&
       dot_product(dispgeoms(i)%grads(1:l,j,j),dispgeoms(i)%grads(1:l,j,j))
     end do
   end do
