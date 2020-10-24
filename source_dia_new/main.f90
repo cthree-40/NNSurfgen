@@ -41,6 +41,10 @@ SUBROUTINE readinput()
   hdfptn  =  'hd.all'
   eshift = 76.6476575743
 
+  ! pip modes
+  scalemod=-1
+  morse=1.0
+  
   ! Set up energy scaling
   energyT(1:5) = (/        10.0D3, 20.0D3, 30.0D3,  100.0D3,  1000.D3 /) / ev2cm
   highEScale(1:5) = (/ 1.0D0, 0.5D0,  0.2D0,  0.1D0,   0.1D-1  /)
@@ -81,9 +85,8 @@ SUBROUTINE readinput()
   !pip
   npip=ncoord-noopc
   pipbasfl='MOL_1_3_4.BAS'
-  scalemod=-1
-  morse=1.0
   call initpip
+
   !ANN
   ANN%structfl='struct'
   call ANN%init()
