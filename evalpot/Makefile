@@ -11,6 +11,8 @@ FINDMXOBJ  = nn.o pes.o opttools.o findmex.o
 EVALLIBOBJ = nn.o pes.o
 #end of Macro definition
 
+all: evallibs evalpot.x findcp.x findmex.x testgrads.x testpoints.x
+
 evallibs: $(EVALLIBOBJ)
 	$(AR) -r -v ../lib/lib-nnsurfgen.a $(EVALLIBOBJ)
 

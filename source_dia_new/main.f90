@@ -42,9 +42,9 @@ SUBROUTINE readinput()
   eshift = 76.6476575743
 
   ! Set up energy scaling
-  energyT(1:5) = (/ 10.0D3, 20.0D3, 60.0D3, 100.0D3, 1000.D3 /) / ev2cm
-  highEScale(1:5) = (/ 0.5D0, 0.3D0, 0.2D0, 0.1D0, 0.2D-1  /)
-  
+  energyT(1:5) = (/        10.0D3, 20.0D3, 30.0D3,  100.0D3,  1000.D3 /) / ev2cm
+  highEScale(1:5) = (/ 1.0D0, 0.5D0,  0.2D0,  0.1D0,   0.1D-1  /)
+
   ! restart from WB-restart.txt ?
   restart = .false.
   

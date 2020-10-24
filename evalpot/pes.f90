@@ -867,10 +867,12 @@ subroutine pesinit
   print *, "Total number of coordinates: ", ncoord
   print *, "Number of user defined OOP coordinates: ", noopc
 
+  call readpotentialinput()
+  
   !pip
   npip=ncoord-noopc
   pipbasfl='MOL_1_3_4.BAS'
-  scalemod=-1
+  !scalemod=-1
   call initpip
 
   !ANN
@@ -910,10 +912,12 @@ subroutine prepot
   print *, "Total number of coordinates: ", ncoord
   print *, "Number of user defined OOP coordinates: ", noopc
 
+  call readpotentialinput()
+  
   !pip
   npip=ncoord-noopc
   pipbasfl='MOL_1_3_4.BAS'
-  scalemod=-1
+  !scalemod=-1
   call initpip
 
   !ANN
@@ -951,6 +955,31 @@ subroutine prepot
   end if
   return
 end subroutine prepot
+!==========================================================================
+subroutine readpotentialinput
+  use nnpes
+  use pip
+  implicit none
+  character(255) :: filename
+  integer        :: fileunit
+  integer        :: ios
+  namelist /general/ scalemod, morse
+  filename = "potential.input"
+  scalemod=-1
+  morse=1.0d0
+  call FLUnit(fileunit)
+  open(file=filename,unit=fileunit,status="unknown",action="read",iostat=ios)
+  if (ios .ne. 0) then
+     print *, "Could not open 'potential.input' to read &general."
+     print *, " WARNING: Continuing with default values."
+     return
+  end if
+  read(unit=fileunit,nml=general)
+  close(unit=fileunit)
+  print *, " scalemod: ", scalemod
+  print *, " morse:    ", morse
+  return
+end subroutine readpotentialinput
 !==========================================================================
 subroutine initmindist
   use nnpes
